@@ -1,0 +1,27 @@
+# Rootless Quadlet. Place it at ~/.config/containers/systemd/halo-dash.container
+# Then: systemctl --user daemon-reload && systemctl --user start halo-dash
+#
+# --network host reaches llama-server and Postgres on localhost.
+# --pid host shows the machine's CPU, not the container's.
+# /sys read-only provides gpu_busy_percent, GTT, temperature and power.
+# /etc/os-release and /etc/hostname belong to the machine, not the image.
+# Open firewalld on the Strix host only for the nginx address. See nginx.conf.example.
+
+[Container]
+Image=localhost/halo-dash:latest
+ContainerName=halo-dash
+Network=host
+PodmanArgs=--pid=host
+Volume=/sys:/sys:ro
+Volume=/etc/os-release:/host/os-release:ro
+Volume=/etc/hostname:/host/hostname:ro
+Volume=%h/.config/halo-dash/config.yaml:/config/config.yaml:ro
+Volume=%h/.local/share/halo-dash:/data
+Environment=HALO_CONFIG=/config/config.yaml
+Environment=HALO_STATIC=/app/web/dist
+
+[Service]
+Restart=always
+
+[Install]
+WantedBy=default.target

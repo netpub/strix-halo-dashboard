@@ -1,0 +1,31 @@
+# Manual publish of main to the public GitHub mirror.
+# Feature-branch pipelines do not include this job.
+# Protected CI variables for a protected main branch:
+#   GITHUB_REPOSITORY = ORG/strix-halo-dashboard
+#   GITHUB_TOKEN      = a token that can push to that repository
+# Set GITHUB_RELEASE_MESSAGE when playing the job after the first publish.
+# The first publish omits it and records "Initial GitHub release".
+
+stages:
+  - publish
+
+publish-github:
+  stage: publish
+  image: alpine:3.20
+  variables:
+    GIT_TERMINAL_PROMPT: "0"
+    GIT_DEPTH: "0"
+  before_script:
+    - apk add --no-cache git
+    - git config user.name "$(git log -1 --format=%an)"
+    - git config user.email "$(git log -1 --format=%ae)"
+  rules:
+    - if: $CI_COMMIT_BRANCH == "main"
+      when: manual
+  script:
+    - |
+      if [ -n "${GITHUB_RELEASE_MESSAGE:-}" ]; then
+        ./scripts/publish-github.sh -m "$GITHUB_RELEASE_MESSAGE"
+      else
+        ./scripts/publish-github.sh
+      fi

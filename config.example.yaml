@@ -1,0 +1,21 @@
+listen: "0.0.0.0:8787"
+# UI language when the browser has no saved choice. en or de.
+language: en
+# Read-only URL of the existing LiteLLM database. Postgres or SQLite.
+# Postgres: postgresql://halo_ro:change-me@127.0.0.1:5432/litellm
+# SQLite:   sqlite:////path/to/litellm.db
+litellm_database_url: "postgresql://halo_ro:change-me@127.0.0.1:5432/litellm"
+# HTTP address of the LiteLLM proxy, used only to show its version.
+litellm_url: "http://127.0.0.1:4000"
+direct_history_path: "/var/lib/halo-dash/direct.sqlite"
+direct_history_limit: 200
+fixtures: false
+poll_interval_s: 1
+spend_poll_interval_s: 2
+backends:
+  - name: qwen
+    url: http://127.0.0.1:8080
+    model: qwen
+  - name: codestral
+    url: http://127.0.0.1:8081
+    model: codestral

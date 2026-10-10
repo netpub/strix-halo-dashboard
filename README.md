@@ -1,51 +1,73 @@
 # Local AI Monitoring
 
-Monitor for llama-server on an AMD Strix Halo host. It shows CPU, amdgpu load, GTT, and the questions sent through LiteLLM or directly to llama-server.
+A web dashboard for an AMD Strix Halo host that runs local LLMs with llama-server. It shows at a glance which requests are running, how many are waiting, and how busy the machine is.
 
 ![Local AI Monitoring: running models, GPU load, queue, and recent requests](docs/screenshot.jpg)
 
-LiteLLM stays the source for finished prompts. The dashboard only reads `LiteLLM_SpendLogs` and does not store the text a second time. Live generation comes from `GET /slots` and `GET /metrics`.
+## What it shows
 
-## llama-server
+- Which models are loaded on each llama-server, and whether each one is idle, reading a prompt, or generating.
+- Requests in progress and requests waiting in the queue.
+- Recent requests with the question, model, token counts, speed, and duration.
+- CPU, GPU load, GTT memory, temperature, power, and disk activity.
+- Hostname, IP address, operating system, and the LiteLLM and llama-server versions.
 
-Each server needs both endpoints:
+The interface is in English or German, in light or dark mode.
 
-```bash
-llama-server --slots --metrics -m /models/model.gguf --host 127.0.0.1 --port 8080
-```
+## How it gets the data
 
-A llama-server router is queried only for models whose status is `loaded`, with `autoload=false`. Sleeping and unloaded models are left alone.
+Live requests come from llama-server's `/slots` and `/metrics` endpoints. Hardware values come from `/proc` and the amdgpu files in `/sys`.
+
+Finished requests that went through LiteLLM come from LiteLLM's own log table, `LiteLLM_SpendLogs`. The dashboard only reads that table and never writes to it. It does not keep a second copy of those prompts.
+
+Requests sent straight to llama-server, bypassing LiteLLM, never reach that table. The dashboard keeps a short list of those in its own SQLite file.
+
+On Strix Halo, models live in GTT, the system memory the GPU shares. The VRAM figure is only the small reserve set in the BIOS and is labeled that way.
+
+## Requirements
+
+- llama-server started with `--slots` and `--metrics`:
+
+  ```bash
+  llama-server --slots --metrics -m /models/model.gguf --host 127.0.0.1 --port 8080
+  ```
+
+- Optional: LiteLLM with its database in Postgres or SQLite, for finished requests and user names.
+- Podman on the host. A reverse proxy such as nginx in front, because the dashboard has no login of its own.
+
+A llama-server in router mode serves several models from one port. The dashboard asks it only about models that are already loaded, and it never makes the router load or wake a model.
 
 ## Configuration
+
+Start from the example:
 
 ```bash
 cp config.example.yaml config.yaml
 ```
 
-`model` is the name LiteLLM uses for that model. It joins a live slot request with the later SpendLogs row.
+Under `backends`, list each llama-server with a `name` and its base URL, without `/v1`:
 
-`language` is the UI language when the browser has no saved choice. `en` is the default. `de` is included. Add another language by creating `web/src/i18n/<code>.ts` with the same catalog as `en.ts` and registering it in `web/src/i18n/index.tsx`. The header switch then offers it. A visitor's choice is stored in the browser and overrides this default.
-
-The header also switches between light and dark. With no saved choice, the page follows the browser. A click stores light or dark for the next visit.
-
-Create a Postgres user that can only read. For SQLite, set `litellm_database_url` to the LiteLLM database file, for example `sqlite:////path/to/litellm.db`.
-
-Calls that bypass LiteLLM stay in `direct_history_path`. That is the only local list.
-
-## Local, without the APU
-
-Python 3.11 or newer:
-
-```bash
-python3 -m venv .venv
-.venv/bin/pip install -e ".[dev]"
-cd web && npm install && npm run build && cd ..
-HALO_FIXTURES=1 .venv/bin/halo-dash
+```yaml
+backends:
+  - name: router
+    url: http://127.0.0.1:8081
+  - name: vision
+    url: http://127.0.0.1:8082
 ```
 
-The UI is then at `http://127.0.0.1:8787` and shows sample data.
+Router mode needs nothing more; the dashboard reads the loaded models from the server. For a server that runs a single model, you can add `model` with the name LiteLLM uses for it. That helps match a live request with its LiteLLM log entry when the names differ.
 
-## Podman on the Strix host
+`litellm_database_url` points to the LiteLLM database. Use a Postgres user with read-only rights, or a SQLite path such as `sqlite:////path/to/litellm.db`. `litellm_url` is the LiteLLM proxy address and is only used to show its version.
+
+`direct_history_path` is the SQLite file for requests that bypass LiteLLM. The dashboard creates it. In the container, set it to `/data/direct.sqlite`.
+
+`language` sets the default interface language, `en` or `de`. Each visitor can switch in the header, and the browser remembers the choice. The light and dark switch works the same way. Without a saved choice, the page follows the browser setting.
+
+To add a language, copy `web/src/i18n/en.ts` to a new file such as `fr.ts`, translate it, and register it in `web/src/i18n/index.tsx`. The header then offers it.
+
+## Run it on the Strix Halo host
+
+Build the image and install it as a rootless Podman Quadlet:
 
 ```bash
 podman build -t localhost/halo-dash:latest -f Containerfile .
@@ -56,16 +78,35 @@ systemctl --user daemon-reload
 systemctl --user start halo-dash
 ```
 
-The container uses the host network and the host PID namespace, so llama-server on localhost and the machine's CPU are visible. `/sys` is mounted read-only. `/etc/os-release` and `/etc/hostname` are the host's files, so the UI shows the machine rather than the image. If the LiteLLM database is SQLite, add that directory to the Quadlet `Volume` lines.
+Edit `~/.config/halo-dash/config.yaml` before the start. The dashboard then listens on port 8787.
 
-Firewall, only from the nginx machine:
+The container shares the host's network and process list, so it can reach llama-server on localhost and see the real CPU load. It mounts `/sys` read-only for the GPU values, and the host's `/etc/os-release` and `/etc/hostname` so it shows the machine instead of the container. If LiteLLM uses SQLite, add that directory as another `Volume` line in the Quadlet.
+
+After an update, rebuild the image and run `systemctl --user restart halo-dash`.
+
+## Put it behind nginx
+
+Copy the `location` block from `deploy/nginx.conf.example` into your nginx and add your existing authentication there. The block turns off buffering so live updates arrive right away.
+
+On the Strix Halo host, open port 8787 only for the nginx machine:
 
 ```bash
 sudo firewall-cmd --permanent --add-rich-rule='rule family="ipv4" source address="NGINX_IP" port port="8787" protocol="tcp" accept'
 sudo firewall-cmd --reload
 ```
 
-Copy the `location` block from `deploy/nginx.conf.example` into the existing nginx. Authentication stays there.
+## Try it without a Strix Halo
+
+With Python 3.11 or newer and Node.js, the dashboard runs on any machine with sample data:
+
+```bash
+python3 -m venv .venv
+.venv/bin/pip install -e ".[dev]"
+cd web && npm install && npm run build && cd ..
+HALO_FIXTURES=1 .venv/bin/halo-dash
+```
+
+Then open `http://127.0.0.1:8787`.
 
 ## License
 

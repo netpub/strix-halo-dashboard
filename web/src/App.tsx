@@ -212,8 +212,9 @@ export function App() {
 
         <article className="card requests">
           <p className="eyebrow">{t.recentRequests}</p>
-          <div className="table-wrap">
-            <table>
+          <div className="table-scroll">
+            <div className="table-wrap" tabIndex={0} role="region" aria-label={t.recentRequests}>
+              <table>
               <thead>
                 <tr>
                   <th>{t.time}</th>
@@ -235,7 +236,8 @@ export function App() {
                   <tr><td colSpan={9} className="empty">{t.noRequests}</td></tr>
                 )}
               </tbody>
-            </table>
+              </table>
+            </div>
           </div>
           <p className="table-foot">
             {fill(t.sinceStart, {

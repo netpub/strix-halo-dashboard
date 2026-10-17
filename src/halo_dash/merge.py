@@ -132,12 +132,7 @@ def compose_requests(
             direct_ids_hidden.append(str(direct["id"]))
             continue
         rows.append(direct)
-    grouped: dict[int, list[dict]] = {}
-    for row in rows:
-        grouped.setdefault(_status_rank(str(row["status"])), []).append(row)
-    ordered: list[dict] = []
-    for rank in sorted(grouped):
-        ordered.extend(sorted(grouped[rank], key=lambda row: str(row["started_at"]), reverse=True))
+    ordered = sorted(rows, key=_started_at, reverse=True)
     return ordered, direct_ids_hidden
 
 
@@ -205,8 +200,8 @@ def _direct_already_shown(direct: dict, rows: list[dict]) -> bool:
     return False
 
 
-def _status_rank(status: str) -> int:
-    return {"generating": 0, "prefill": 1, "queued": 2, "error": 3, "done": 4}.get(status, 5)
+def _started_at(row: dict) -> datetime:
+    return _parse_dt(str(row.get("started_at") or "")) or datetime.min.replace(tzinfo=timezone.utc)
 
 
 def _clip(text: str) -> str:

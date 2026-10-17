@@ -108,6 +108,8 @@ HALO_FIXTURES=1 .venv/bin/halo-dash
 
 Then open `http://127.0.0.1:8787`.
 
+Changes are listed in [CHANGELOG.md](CHANGELOG.md).
+
 ## License
 
 Copyright (C) 2026 network.publishing Möller-Westbunk GmbH. Author: Christoph Möller <hallo@network-publishing.de>. Licensed under the GNU Affero General Public License v3.0. See `LICENSE`.

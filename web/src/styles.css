@@ -422,6 +422,34 @@ th {
   font-weight: 600;
   padding: 0 8px 8px 0;
 }
+th .sort {
+  display: inline-flex;
+  align-items: center;
+  gap: 3px;
+  max-width: 100%;
+  margin: 0;
+  padding: 0;
+  border: 0;
+  background: none;
+  color: inherit;
+  font: inherit;
+  letter-spacing: inherit;
+  text-align: left;
+  cursor: pointer;
+}
+th .sort:hover,
+th .sort.on { color: var(--text); }
+th .sort:focus-visible {
+  outline: 2px solid var(--selected-line);
+  outline-offset: 2px;
+}
+th .sort-mark {
+  display: inline-block;
+  width: 0.75em;
+  flex: 0 0 auto;
+  font-size: 9px;
+  line-height: 1;
+}
 td { padding: 9px 8px 9px 0; border-top: 1px solid var(--table-line); vertical-align: middle; }
 .prompt { white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
 .model-pill {

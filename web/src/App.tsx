@@ -7,12 +7,97 @@ import type { LlamaVersion, RequestRow, Service, Snapshot, SystemInfo } from "./
 
 const STATE_ORDER = ["idle", "prefill", "generating", "queued", "error"] as const;
 
+type RequestSortKey = "time" | "status" | "source" | "model" | "prompt" | "output" | "tps" | "duration";
+type SortDir = "asc" | "desc";
+
+interface RequestSort {
+  key: RequestSortKey;
+  dir: SortDir;
+}
+
+function defaultSortDir(key: RequestSortKey): SortDir {
+  return key === "status" || key === "source" || key === "model" ? "asc" : "desc";
+}
+
+function toggleRequestSort(current: RequestSort, key: RequestSortKey): RequestSort {
+  if (current.key === key) return { key, dir: current.dir === "asc" ? "desc" : "asc" };
+  return { key, dir: defaultSortDir(key) };
+}
+
+function requestSourceLabel(row: RequestRow, catalog: Catalog): string {
+  return row.source === "litellm" ? "LiteLLM" : catalog.direct;
+}
+
+function compareText(left: string, right: string, locale: string, dir: SortDir): number {
+  const delta = left.localeCompare(right, locale, { sensitivity: "base" });
+  return dir === "asc" ? delta : -delta;
+}
+
+function compareNumber(left: number | null, right: number | null, dir: SortDir): number {
+  const leftMissing = left == null;
+  const rightMissing = right == null;
+  if (leftMissing || rightMissing) {
+    if (leftMissing && rightMissing) return 0;
+    return leftMissing ? 1 : -1;
+  }
+  return dir === "asc" ? left - right : right - left;
+}
+
+function compareTime(left: string, right: string, dir: SortDir): number {
+  const leftMs = Date.parse(left);
+  const rightMs = Date.parse(right);
+  const delta = (Number.isNaN(leftMs) ? 0 : leftMs) - (Number.isNaN(rightMs) ? 0 : rightMs);
+  return dir === "asc" ? delta : -delta;
+}
+
+function compareRequests(left: RequestRow, right: RequestRow, sort: RequestSort, catalog: Catalog): number {
+  let primary = 0;
+  switch (sort.key) {
+    case "time":
+      primary = compareTime(left.started_at, right.started_at, sort.dir);
+      break;
+    case "status":
+      primary = compareText(stateLabel(catalog, left.status), stateLabel(catalog, right.status), catalog.locale, sort.dir);
+      break;
+    case "source":
+      primary = compareText(requestSourceLabel(left, catalog), requestSourceLabel(right, catalog), catalog.locale, sort.dir);
+      break;
+    case "model":
+      primary = compareText(left.model, right.model, catalog.locale, sort.dir);
+      break;
+    case "prompt":
+      primary = compareNumber(left.prompt_tokens, right.prompt_tokens, sort.dir);
+      break;
+    case "output":
+      primary = compareNumber(left.output_tokens, right.output_tokens, sort.dir);
+      break;
+    case "tps":
+      primary = compareNumber(left.tps, right.tps, sort.dir);
+      break;
+    case "duration":
+      primary = compareNumber(left.duration_s, right.duration_s, sort.dir);
+      break;
+  }
+  if (primary !== 0) return primary;
+  return compareTime(left.started_at, right.started_at, "desc");
+}
+
+function sortRequests(rows: RequestRow[], sort: RequestSort, catalog: Catalog): RequestRow[] {
+  return [...rows].sort((left, right) => compareRequests(left, right, sort, catalog));
+}
+
 export function App() {
   const { catalog: t, language, languages, setLanguage, acceptDefault } = useI18n();
   const { theme, setTheme } = useTheme();
   const [snap, setSnap] = useState<Snapshot | null>(null);
   const [pinned, setPinned] = useState<string | null>(null);
   const [offline, setOffline] = useState(false);
+  const [requestSort, setRequestSort] = useState<RequestSort>({ key: "time", dir: "desc" });
+  const sortedRequests = useMemo(
+    () => sortRequests(snap?.requests ?? [], requestSort, t),
+    [snap?.requests, requestSort, t],
+  );
+  const sortBy = (column: RequestSortKey) => setRequestSort((current) => toggleRequestSort(current, column));
 
   useEffect(() => {
     const source = new EventSource("/api/stream");
@@ -217,22 +302,22 @@ export function App() {
               <table>
               <thead>
                 <tr>
-                  <th>{t.time}</th>
-                  <th>{t.status}</th>
-                  <th>{t.source}</th>
-                  <th>{t.model}</th>
+                  <SortHeader label={t.time} column="time" sort={requestSort} onSort={sortBy} />
+                  <SortHeader label={t.status} column="status" sort={requestSort} onSort={sortBy} />
+                  <SortHeader label={t.source} column="source" sort={requestSort} onSort={sortBy} />
+                  <SortHeader label={t.model} column="model" sort={requestSort} onSort={sortBy} />
                   <th>{t.question}</th>
-                  <th>{t.promptTokens}</th>
-                  <th>{t.outputTokens}</th>
-                  <th>tok/s</th>
-                  <th>{t.duration}</th>
+                  <SortHeader label={t.promptTokens} column="prompt" sort={requestSort} onSort={sortBy} />
+                  <SortHeader label={t.outputTokens} column="output" sort={requestSort} onSort={sortBy} />
+                  <SortHeader label="tok/s" column="tps" sort={requestSort} onSort={sortBy} />
+                  <SortHeader label={t.duration} column="duration" sort={requestSort} onSort={sortBy} />
                 </tr>
               </thead>
               <tbody>
-                {snap.requests.map((row) => (
+                {sortedRequests.map((row) => (
                   <RequestLine key={row.id} row={row} />
                 ))}
-                {snap.requests.length === 0 && (
+                {sortedRequests.length === 0 && (
                   <tr><td colSpan={9} className="empty">{t.noRequests}</td></tr>
                 )}
               </tbody>
@@ -249,6 +334,28 @@ export function App() {
         </article>
       </section>
     </main>
+  );
+}
+
+function SortHeader({
+  label,
+  column,
+  sort,
+  onSort,
+}: {
+  label: string;
+  column: RequestSortKey;
+  sort: RequestSort;
+  onSort: (column: RequestSortKey) => void;
+}) {
+  const active = sort.key === column;
+  return (
+    <th aria-sort={active ? (sort.dir === "asc" ? "ascending" : "descending") : "none"}>
+      <button type="button" className={active ? "sort on" : "sort"} onClick={() => onSort(column)}>
+        {label}
+        <span className="sort-mark" aria-hidden="true">{active ? (sort.dir === "asc" ? "↑" : "↓") : ""}</span>
+      </button>
+    </th>
   );
 }
 

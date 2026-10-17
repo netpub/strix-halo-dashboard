@@ -216,6 +216,38 @@ def test_direct_row_hides_when_spend_log_matches():
     assert hidden == ["direct-9"]
 
 
+def test_compose_requests_orders_by_start_time_not_status():
+    older = datetime(2026, 10, 10, 12, 0, tzinfo=timezone.utc)
+    newer = older + timedelta(minutes=5)
+    error = SpendCall(
+        id="old-error",
+        model="qwen",
+        model_group="qwen",
+        status="error",
+        prompt="Diese Anfrage ist fehlgeschlagen und älter.",
+        user=None,
+        prompt_tokens=10,
+        output_tokens=0,
+        started_at=older,
+        ended_at=older + timedelta(seconds=1),
+    )
+    done = SpendCall(
+        id="new-done",
+        model="qwen",
+        model_group="qwen",
+        status="done",
+        prompt="Diese Anfrage ist neuer und erfolgreich.",
+        user=None,
+        prompt_tokens=12,
+        output_tokens=4,
+        started_at=newer,
+        ended_at=newer + timedelta(seconds=2),
+    )
+    rows, hidden = compose_requests([], [], [error, done], [], {})
+    assert [row["id"] for row in rows] == ["new-done", "old-error"]
+    assert hidden == []
+
+
 def test_router_queries_only_loaded_models_without_autoload():
     import asyncio
 
